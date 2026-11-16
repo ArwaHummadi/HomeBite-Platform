@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: homebite-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: homebite
+      POSTGRES_PASSWORD: homebite
+      POSTGRES_DB: homebite
+    ports:
+      - "5432:5432"
+    volumes:
+      - homebite-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U homebite -d homebite"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  homebite-db:

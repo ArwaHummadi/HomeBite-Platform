@@ -1,0 +1,688 @@
+// HomeBite database. One model for each table of our ERD (25 tables).
+// A few columns were added while coding, for example to lock an account after many wrong passwords.
+// @map keeps the table and column names of the ERD (snake_case) inside the database.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- enums
+
+enum AccountStatus {
+  active
+  suspended
+}
+
+enum Language {
+  ar
+  en
+}
+
+enum ApprovalStatus {
+  pending
+  approved
+  rejected
+}
+
+enum FulfillmentType {
+  delivery
+  pickup
+}
+
+enum OrderType {
+  instant
+  scheduled
+  package
+}
+
+enum OrderStatus {
+  pending
+  preparing
+  ready
+  on_the_way
+  delivered
+  rejected
+  cancelled
+}
+
+enum PurchaseStatus {
+  pending
+  active
+  completed
+  expired
+  cancelled
+}
+
+enum PaymentMethod {
+  card
+  cash
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  partially_refunded
+  refunded
+}
+
+enum RefundStatus {
+  pending
+  succeeded
+  failed
+}
+
+enum OfferResponse {
+  pending
+  accepted
+  rejected
+  expired
+}
+
+enum TripStatus {
+  planned
+  in_progress
+  completed
+  cancelled
+}
+
+enum WalletTxType {
+  order_credit
+  package_credit
+  delivery_credit
+  cash_share
+  compensation
+  payout
+  adjustment
+}
+
+enum FeaturedStatus {
+  pending
+  active
+  expired
+  cancelled
+}
+
+enum SenderRole {
+  customer
+  cook
+  driver
+}
+
+// ---------------------------------------------------------------- accounts
+
+model Customer {
+  id                   Int           @id @default(autoincrement()) @map("customer_id")
+  fullName             String        @map("full_name")
+  email                String        @unique
+  phone                String
+  passwordHash         String        @map("password_hash")
+  accountStatus        AccountStatus @default(active) @map("account_status")
+  preferredLanguage    Language      @default(ar) @map("preferred_language")
+  allergies            String?
+  dietaryNotes         String?       @map("dietary_notes")
+  notificationsSeenAt  DateTime?     @map("notifications_seen_at")
+  failedLoginAttempts  Int           @default(0) @map("failed_login_attempts")
+  lockedUntil          DateTime?     @map("locked_until")
+  resetTokenHash       String?       @map("reset_token_hash")
+  resetTokenExpiresAt  DateTime?     @map("reset_token_expires_at")
+  createdAt            DateTime      @default(now()) @map("created_at")
+
+  addresses Address[]
+  purchases PackagePurchase[]
+  orders    Order[]
+  ratings   Rating[]
+  messages  Message[]
+
+  @@map("customer")
+}
+
+model Admin {
+  id                  Int           @id @default(autoincrement()) @map("admin_id")
+  fullName            String        @map("full_name")
+  email               String        @unique
+  phone               String
+  passwordHash        String        @map("password_hash")
+  accountStatus       AccountStatus @default(active) @map("account_status")
+  preferredLanguage   Language      @default(ar) @map("preferred_language")
+  failedLoginAttempts Int           @default(0) @map("failed_login_attempts")
+  lockedUntil         DateTime?     @map("locked_until")
+  resetTokenHash      String?       @map("reset_token_hash")
+  resetTokenExpiresAt DateTime?     @map("reset_token_expires_at")
+  createdAt           DateTime      @default(now()) @map("created_at")
+
+  approvedRefunds    Refund[]            @relation("RefundApprovedBy")
+  walletTransactions WalletTransaction[] @relation("WalletCreatedBy")
+  settings           PlatformSetting[]
+
+  @@map("admin")
+}
+
+model City {
+  id     Int    @id @default(autoincrement()) @map("city_id")
+  nameAr String @map("name_ar")
+  nameEn String @map("name_en")
+
+  cooks     HomeCook[]
+  addresses Address[]
+
+  @@map("city")
+}
+
+model HomeCook {
+  id                   Int            @id @default(autoincrement()) @map("cook_id")
+  fullName             String         @map("full_name")
+  email                String         @unique
+  phone                String
+  passwordHash         String         @map("password_hash")
+  accountStatus        AccountStatus  @default(active) @map("account_status")
+  preferredLanguage    Language       @default(ar) @map("preferred_language")
+  kitchenName          String         @map("kitchen_name")
+  slug                 String         @unique
+  bio                  String
+  logo                 String?
+  cityId               Int            @map("city_id")
+  district             String
+  latitude             Decimal        @db.Decimal(9, 6)
+  longitude            Decimal        @db.Decimal(9, 6)
+  mapsLink             String         @map("maps_link")
+  permitDocument       String         @map("permit_document")
+  approvalStatus       ApprovalStatus @default(pending) @map("approval_status")
+  approvedAt           DateTime?      @map("approved_at")
+  rejectionReason      String?        @map("rejection_reason")
+  dailyCapacity        Int            @default(10) @map("daily_capacity")
+  autoAccept           Boolean        @default(false) @map("auto_accept")
+  isOpenNow            Boolean        @default(false) @map("is_open_now")
+  openOverrideAt       DateTime?      @map("open_override_at")
+  packageChangeHours   Int?           @map("package_change_hours")
+  avgRating            Decimal        @default(0) @db.Decimal(3, 2) @map("avg_rating")
+  notificationsSeenAt  DateTime?      @map("notifications_seen_at")
+  failedLoginAttempts  Int            @default(0) @map("failed_login_attempts")
+  lockedUntil          DateTime?      @map("locked_until")
+  resetTokenHash       String?        @map("reset_token_hash")
+  resetTokenExpiresAt  DateTime?      @map("reset_token_expires_at")
+  createdAt            DateTime       @default(now()) @map("created_at")
+
+  city               City                   @relation(fields: [cityId], references: [id])
+  workingHours       CookWorkingHours[]
+  dayExceptions      CookDay[]
+  meals              Meal[]
+  packages           Package[]
+  orders             Order[]
+  trips              DeliveryTrip[]
+  walletTransactions WalletTransaction[]
+  featured           FeaturedSubscription[]
+  ratings            Rating[]
+  messages           Message[]
+
+  @@map("home_cook")
+}
+
+model CookWorkingHours {
+  id        Int    @id @default(autoincrement()) @map("working_hours_id")
+  cookId    Int    @map("cook_id")
+  weekday   Int
+  openTime  String @map("open_time") @db.VarChar(5)
+  closeTime String @map("close_time") @db.VarChar(5)
+
+  cook HomeCook @relation(fields: [cookId], references: [id], onDelete: Cascade)
+
+  @@unique([cookId, weekday])
+  @@map("cook_working_hours")
+}
+
+model CookDay {
+  id               Int      @id @default(autoincrement()) @map("cook_day_id")
+  cookId           Int      @map("cook_id")
+  day              DateTime @db.Date
+  isClosed         Boolean  @default(false) @map("is_closed")
+  capacityOverride Int?     @map("capacity_override")
+
+  cook HomeCook @relation(fields: [cookId], references: [id], onDelete: Cascade)
+
+  @@unique([cookId, day])
+  @@map("cook_day")
+}
+
+model Driver {
+  id                          Int            @id @default(autoincrement()) @map("driver_id")
+  fullName                    String         @map("full_name")
+  email                       String         @unique
+  phone                       String
+  passwordHash                String         @map("password_hash")
+  accountStatus               AccountStatus  @default(active) @map("account_status")
+  preferredLanguage           Language       @default(ar) @map("preferred_language")
+  vehicleType                 String         @map("vehicle_type")
+  plateNumber                 String         @map("plate_number")
+  idDocument                  String         @map("id_document")
+  licenseDocument             String         @map("license_document")
+  vehicleRegistrationDocument String         @map("vehicle_registration_document")
+  approvalStatus              ApprovalStatus @default(pending) @map("approval_status")
+  approvedAt                  DateTime?      @map("approved_at")
+  rejectionReason             String?        @map("rejection_reason")
+  isAvailable                 Boolean        @default(false) @map("is_available")
+  lastLatitude                Decimal?       @db.Decimal(9, 6) @map("last_latitude")
+  lastLongitude               Decimal?       @db.Decimal(9, 6) @map("last_longitude")
+  lastLocationAt              DateTime?      @map("last_location_at")
+  avgRating                   Decimal        @default(0) @db.Decimal(3, 2) @map("avg_rating")
+  notificationsSeenAt         DateTime?      @map("notifications_seen_at")
+  failedLoginAttempts         Int            @default(0) @map("failed_login_attempts")
+  lockedUntil                 DateTime?      @map("locked_until")
+  resetTokenHash              String?        @map("reset_token_hash")
+  resetTokenExpiresAt         DateTime?      @map("reset_token_expires_at")
+  createdAt                   DateTime       @default(now()) @map("created_at")
+
+  locations          DriverLocation[]
+  orders             Order[]
+  offers             DeliveryOffer[]
+  trips              DeliveryTrip[]
+  walletTransactions WalletTransaction[]
+  ratings            Rating[]
+  messages           Message[]
+
+  @@map("driver")
+}
+
+model DriverLocation {
+  id         Int      @id @default(autoincrement()) @map("location_id")
+  driverId   Int      @map("driver_id")
+  orderId    Int?     @map("order_id")
+  latitude   Decimal  @db.Decimal(9, 6)
+  longitude  Decimal  @db.Decimal(9, 6)
+  recordedAt DateTime @default(now()) @map("recorded_at")
+
+  driver Driver @relation(fields: [driverId], references: [id], onDelete: Cascade)
+  order  Order? @relation(fields: [orderId], references: [id])
+
+  @@index([driverId, recordedAt])
+  @@map("driver_location")
+}
+
+model Address {
+  id            Int     @id @default(autoincrement()) @map("address_id")
+  customerId    Int     @map("customer_id")
+  label         String
+  cityId        Int     @map("city_id")
+  district      String
+  streetDetails String  @map("street_details")
+  latitude      Decimal @db.Decimal(9, 6)
+  longitude     Decimal @db.Decimal(9, 6)
+  mapsLink      String  @map("maps_link")
+  isDefault     Boolean @default(false) @map("is_default")
+  isDeleted     Boolean @default(false) @map("is_deleted")
+
+  customer  Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  city      City              @relation(fields: [cityId], references: [id])
+  purchases PackagePurchase[]
+  orders    Order[]
+
+  @@map("address")
+}
+
+// ---------------------------------------------------------------- menu and packages
+
+model Meal {
+  id               Int     @id @default(autoincrement()) @map("meal_id")
+  cookId           Int     @map("cook_id")
+  name             String
+  description      String
+  category         String
+  price            Decimal @db.Decimal(10, 2)
+  image            String?
+  prepTimeMinutes  Int?    @map("prep_time_minutes")
+  allergens        String?
+  isActive         Boolean @default(true) @map("is_active")
+  isAvailableToday Boolean @default(true) @map("is_available_today")
+  unavailableOn    DateTime? @map("unavailable_on") @db.Date
+
+  cook         HomeCook      @relation(fields: [cookId], references: [id], onDelete: Cascade)
+  days         MealDay[]
+  packageMeals PackageMeal[]
+  orderItems   OrderItem[]
+
+  @@index([cookId])
+  @@map("meal")
+}
+
+model MealDay {
+  mealId  Int @map("meal_id")
+  weekday Int
+
+  meal Meal @relation(fields: [mealId], references: [id], onDelete: Cascade)
+
+  @@id([mealId, weekday])
+  @@map("meal_day")
+}
+
+model Package {
+  id           Int     @id @default(autoincrement()) @map("package_id")
+  cookId       Int     @map("cook_id")
+  name         String
+  description  String
+  mealsCount   Int     @map("meals_count")
+  price        Decimal @db.Decimal(10, 2)
+  validityDays Int     @map("validity_days")
+  isActive     Boolean @default(true) @map("is_active")
+
+  cook      HomeCook          @relation(fields: [cookId], references: [id], onDelete: Cascade)
+  meals     PackageMeal[]
+  purchases PackagePurchase[]
+
+  @@index([cookId])
+  @@map("package")
+}
+
+model PackageMeal {
+  packageId Int  @map("package_id")
+  mealId    Int  @map("meal_id")
+  quantity  Int?
+
+  package Package @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  meal    Meal    @relation(fields: [mealId], references: [id])
+
+  @@id([packageId, mealId])
+  @@map("package_meal")
+}
+
+model PackagePurchase {
+  id                     Int             @id @default(autoincrement()) @map("purchase_id")
+  packageId              Int             @map("package_id")
+  customerId             Int             @map("customer_id")
+  addressId              Int?            @map("address_id")
+  fulfillmentType        FulfillmentType @map("fulfillment_type")
+  purchasedAt            DateTime        @default(now()) @map("purchased_at")
+  expiresAt              DateTime        @map("expires_at") @db.Date
+  totalMeals             Int             @map("total_meals")
+  remainingMeals         Int             @map("remaining_meals")
+  mealsAmount            Decimal         @db.Decimal(10, 2) @map("meals_amount")
+  deliveryFeePerDelivery Decimal         @db.Decimal(10, 2) @map("delivery_fee_per_delivery")
+  deliveryAmountPrepaid  Decimal         @db.Decimal(10, 2) @map("delivery_amount_prepaid")
+  totalPaid              Decimal         @db.Decimal(10, 2) @map("total_paid")
+  commissionRate         Decimal         @db.Decimal(5, 2) @map("commission_rate")
+  commissionAmount       Decimal         @db.Decimal(10, 2) @map("commission_amount")
+  distanceKm             Decimal?        @db.Decimal(6, 2) @map("distance_km")
+  status                 PurchaseStatus  @default(pending)
+  cookCreditedAt         DateTime?       @map("cook_credited_at")
+  expiryWarnedAt         DateTime?       @map("expiry_warned_at")
+
+  package            Package             @relation(fields: [packageId], references: [id])
+  customer           Customer            @relation(fields: [customerId], references: [id])
+  address            Address?            @relation(fields: [addressId], references: [id])
+  orders             Order[]
+  payment            Payment?
+  refunds            Refund[]
+  walletTransactions WalletTransaction[]
+
+  @@index([customerId])
+  @@map("package_purchase")
+}
+
+// ---------------------------------------------------------------- orders
+
+model Order {
+  id               Int             @id @default(autoincrement()) @map("order_id")
+  customerId       Int             @map("customer_id")
+  cookId           Int             @map("cook_id")
+  orderType        OrderType       @map("order_type")
+  purchaseId       Int?            @map("purchase_id")
+  fulfillmentType  FulfillmentType @map("fulfillment_type")
+  addressId        Int?            @map("address_id")
+  scheduledDate    DateTime?       @map("scheduled_date") @db.Date
+  windowStart      String?         @map("window_start") @db.VarChar(5)
+  windowEnd        String?         @map("window_end") @db.VarChar(5)
+  status           OrderStatus     @default(pending)
+  subtotal         Decimal         @db.Decimal(10, 2)
+  deliveryFee      Decimal         @db.Decimal(10, 2) @map("delivery_fee")
+  commissionRate   Decimal         @db.Decimal(5, 2) @map("commission_rate")
+  commissionAmount Decimal         @db.Decimal(10, 2) @map("commission_amount")
+  totalAmount      Decimal         @db.Decimal(10, 2) @map("total_amount")
+  distanceKm       Decimal?        @db.Decimal(6, 2) @map("distance_km")
+  deliveryPin      String          @map("delivery_pin")
+  cashCollected    Decimal?        @db.Decimal(10, 2) @map("cash_collected")
+  driverId         Int?            @map("driver_id")
+  tripId           Int?            @map("trip_id")
+  customerNotes    String?         @map("customer_notes")
+  placedAt         DateTime        @default(now()) @map("placed_at")
+  acceptedAt       DateTime?       @map("accepted_at")
+  readyAt          DateTime?       @map("ready_at")
+  pickedUpAt       DateTime?       @map("picked_up_at")
+  deliveredAt      DateTime?       @map("delivered_at")
+  cancelledAt      DateTime?       @map("cancelled_at")
+  cancelReason     String?         @map("cancel_reason")
+  dispatchState    String?         @map("dispatch_state")
+  dispatchCycles   Int             @default(0) @map("dispatch_cycles")
+  noDriverNotifiedAt DateTime?     @map("no_driver_notified_at")
+  reminderSentAt   DateTime?       @map("reminder_sent_at")
+  pendingPromptAt  DateTime?       @map("pending_prompt_at")
+
+  customer  Customer         @relation(fields: [customerId], references: [id])
+  cook      HomeCook         @relation(fields: [cookId], references: [id])
+  purchase  PackagePurchase? @relation(fields: [purchaseId], references: [id])
+  address   Address?         @relation(fields: [addressId], references: [id])
+  driver    Driver?          @relation(fields: [driverId], references: [id])
+  trip      DeliveryTrip?    @relation(fields: [tripId], references: [id])
+
+  items              OrderItem[]
+  payment            Payment?
+  refunds            Refund[]
+  offers             DeliveryOffer[]
+  locations          DriverLocation[]
+  walletTransactions WalletTransaction[]
+  ratings            Rating[]
+  messages           Message[]
+
+  @@index([customerId])
+  @@index([cookId, scheduledDate])
+  @@index([driverId])
+  @@index([status])
+  @@map("order")
+}
+
+model OrderItem {
+  id        Int     @id @default(autoincrement()) @map("order_item_id")
+  orderId   Int     @map("order_id")
+  mealId    Int     @map("meal_id")
+  quantity  Int
+  unitPrice Decimal @db.Decimal(10, 2) @map("unit_price")
+  lineTotal Decimal @db.Decimal(10, 2) @map("line_total")
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  meal    Meal     @relation(fields: [mealId], references: [id])
+  refunds Refund[]
+
+  @@index([orderId])
+  @@map("order_item")
+}
+
+// ---------------------------------------------------------------- money
+
+model Payment {
+  id               Int           @id @default(autoincrement()) @map("payment_id")
+  orderId          Int?          @unique @map("order_id")
+  purchaseId       Int?          @unique @map("purchase_id")
+  amount           Decimal       @db.Decimal(10, 2)
+  method           PaymentMethod
+  cardType         String?       @map("card_type")
+  cardLast4        String?       @map("card_last4")
+  status           PaymentStatus @default(pending)
+  paidAt           DateTime?     @map("paid_at")
+  gatewayReference String?       @map("gateway_reference")
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  order    Order?                 @relation(fields: [orderId], references: [id])
+  purchase PackagePurchase?       @relation(fields: [purchaseId], references: [id])
+  featured FeaturedSubscription[]
+  refunds  Refund[]
+
+  @@map("payment")
+}
+
+model Refund {
+  id               Int          @id @default(autoincrement()) @map("refund_id")
+  paymentId        Int          @map("payment_id")
+  orderId          Int?         @map("order_id")
+  purchaseId       Int?         @map("purchase_id")
+  orderItemId      Int?         @map("order_item_id")
+  amount           Decimal      @db.Decimal(10, 2)
+  reason           String
+  status           RefundStatus @default(pending)
+  gatewayReference String?      @map("gateway_reference")
+  requestedAt      DateTime     @default(now()) @map("requested_at")
+  processedAt      DateTime?    @map("processed_at")
+  approvedById     Int?         @map("approved_by")
+  failureReason    String?      @map("failure_reason")
+
+  payment    Payment             @relation(fields: [paymentId], references: [id])
+  order      Order?              @relation(fields: [orderId], references: [id])
+  purchase   PackagePurchase?    @relation(fields: [purchaseId], references: [id])
+  orderItem  OrderItem?          @relation(fields: [orderItemId], references: [id])
+  approvedBy Admin?              @relation("RefundApprovedBy", fields: [approvedById], references: [id])
+  walletTransactions WalletTransaction[]
+
+  @@index([paymentId])
+  @@map("refund")
+}
+
+model WalletTransaction {
+  id                Int          @id @default(autoincrement()) @map("transaction_id")
+  cookId            Int?         @map("cook_id")
+  driverId          Int?         @map("driver_id")
+  type              WalletTxType
+  amount            Decimal      @db.Decimal(10, 2)
+  orderId           Int?         @map("order_id")
+  purchaseId        Int?         @map("purchase_id")
+  refundId          Int?         @map("refund_id")
+  transferReference String?      @map("transfer_reference")
+  description       String
+  createdAt         DateTime     @default(now()) @map("created_at")
+  createdById       Int?         @map("created_by")
+
+  cook      HomeCook?        @relation(fields: [cookId], references: [id])
+  driver    Driver?          @relation(fields: [driverId], references: [id])
+  order     Order?           @relation(fields: [orderId], references: [id])
+  purchase  PackagePurchase? @relation(fields: [purchaseId], references: [id])
+  refund    Refund?          @relation(fields: [refundId], references: [id])
+  createdBy Admin?           @relation("WalletCreatedBy", fields: [createdById], references: [id])
+
+  @@index([cookId])
+  @@index([driverId])
+  @@map("wallet_transaction")
+}
+
+model FeaturedSubscription {
+  id        Int            @id @default(autoincrement()) @map("featured_id")
+  cookId    Int            @map("cook_id")
+  startDate DateTime       @map("start_date") @db.Date
+  endDate   DateTime       @map("end_date") @db.Date
+  amount    Decimal        @db.Decimal(10, 2)
+  status    FeaturedStatus @default(pending)
+  paymentId Int?           @map("payment_id")
+  createdAt DateTime       @default(now()) @map("created_at")
+
+  cook    HomeCook @relation(fields: [cookId], references: [id])
+  payment Payment? @relation(fields: [paymentId], references: [id])
+
+  @@index([cookId])
+  @@map("featured_subscription")
+}
+
+// ---------------------------------------------------------------- delivery
+
+model DeliveryOffer {
+  id          Int           @id @default(autoincrement()) @map("offer_id")
+  orderId     Int           @map("order_id")
+  driverId    Int           @map("driver_id")
+  waveNumber  Int           @map("wave_number")
+  cycle       Int           @default(1)
+  offeredAt   DateTime      @default(now()) @map("offered_at")
+  expiresAt   DateTime      @map("expires_at")
+  response    OfferResponse @default(pending)
+  respondedAt DateTime?     @map("responded_at")
+
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  driver Driver @relation(fields: [driverId], references: [id])
+
+  @@index([orderId])
+  @@index([driverId, response])
+  @@map("delivery_offer")
+}
+
+model DeliveryTrip {
+  id                  Int        @id @default(autoincrement()) @map("trip_id")
+  driverId            Int        @map("driver_id")
+  cookId              Int        @map("cook_id")
+  tripDate            DateTime   @map("trip_date") @db.Date
+  pickupWindowStart   String     @map("pickup_window_start") @db.VarChar(5)
+  pickupWindowEnd     String     @map("pickup_window_end") @db.VarChar(5)
+  deliveryWindowStart String     @map("delivery_window_start") @db.VarChar(5)
+  deliveryWindowEnd   String     @map("delivery_window_end") @db.VarChar(5)
+  status              TripStatus @default(planned)
+  createdAt           DateTime   @default(now()) @map("created_at")
+
+  driver Driver   @relation(fields: [driverId], references: [id])
+  cook   HomeCook @relation(fields: [cookId], references: [id])
+  orders Order[]
+
+  @@index([driverId, tripDate])
+  @@map("delivery_trip")
+}
+
+// ---------------------------------------------------------------- ratings, chat, settings
+
+model Rating {
+  id         Int      @id @default(autoincrement()) @map("rating_id")
+  orderId    Int      @map("order_id")
+  customerId Int      @map("customer_id")
+  cookId     Int?     @map("cook_id")
+  driverId   Int?     @map("driver_id")
+  stars      Int
+  comment    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  order    Order     @relation(fields: [orderId], references: [id])
+  customer Customer  @relation(fields: [customerId], references: [id])
+  cook     HomeCook? @relation(fields: [cookId], references: [id])
+  driver   Driver?   @relation(fields: [driverId], references: [id])
+
+  @@unique([orderId, cookId])
+  @@unique([orderId, driverId])
+  @@map("rating")
+}
+
+model Message {
+  id         Int        @id @default(autoincrement()) @map("message_id")
+  customerId Int        @map("customer_id")
+  cookId     Int?       @map("cook_id")
+  driverId   Int?       @map("driver_id")
+  orderId    Int?       @map("order_id")
+  senderRole SenderRole @map("sender_role")
+  body       String
+  sentAt     DateTime   @default(now()) @map("sent_at")
+  isRead     Boolean    @default(false) @map("is_read")
+  emailSent  Boolean    @default(false) @map("email_sent")
+
+  customer Customer  @relation(fields: [customerId], references: [id])
+  cook     HomeCook? @relation(fields: [cookId], references: [id])
+  driver   Driver?   @relation(fields: [driverId], references: [id])
+  order    Order?    @relation(fields: [orderId], references: [id])
+
+  @@index([customerId, cookId, sentAt])
+  @@index([orderId, sentAt])
+  @@map("message")
+}
+
+model PlatformSetting {
+  key         String   @id @map("setting_key")
+  value       String   @map("setting_value")
+  description String
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedById Int?     @map("updated_by")
+
+  updatedBy Admin? @relation(fields: [updatedById], references: [id])
+
+  @@map("platform_setting")
+}
